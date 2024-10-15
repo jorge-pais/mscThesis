@@ -1,0 +1,8 @@
+numpy
+librosa
+matplotlib
+scipy
+sympy
+pyaudio
+pydub
+praat-textgrids
