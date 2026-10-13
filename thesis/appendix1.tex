@@ -1,0 +1,449 @@
+\chapter{Code Snippets} \label{ap1:loren}
+ 
+\section{Pulse Generation}
+
+\begin{lstlisting}[language=C, caption={Buffer processing function.}, label={lst:processBuffer}]
+    void process_buffer(float32_t *mainBuf) {
+        int16_t *rx_buf, *tx_buf;
+    
+        if (rx_buffer_proc == PING)
+            rx_buf = (int16_t *)PING_IN;
+        else
+            rx_buf = (int16_t *)PONG_IN;
+    
+        if (tx_buffer_proc == PING)
+            tx_buf = (int16_t *)PING_OUT;
+        else
+            tx_buf = (int16_t *)PONG_OUT;
+    
+        int16_t sampleL, sampleR;
+        for (int i = 0; i < (PING_PONG_BUFFER_SIZE); i++){
+            // read both input samples
+            sampleL = *(rx_buf++); sampleR = *(rx_buf++);
+    
+            // copy the input buffer to the output buffer
+            *(tx_buf++) = (int16_t) floor((float32_t) 0.5 + mainBuf[i]);
+            *(tx_buf++) = sampleR; // RIGHT channel remains untouched
+        }
+    
+        RX_buffer_full = 0;
+        TX_buffer_empty = 0;
+    }
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption={Pulse generation \texttt{main()} funciton.}, label={lst:mainPulseGen}]
+int main(void) {
+    uint16_t idxMainBuf = 0, vibrato = 0, contourIndex = 0; // reset main buffer index
+    uint16_t gPulseLen, lastPulseLen, filteredLength;
+
+    float32_t mainBuf[2 * PING_PONG_BUFFER_SIZE] = {0.0f};
+    float32_t gPulseBuf[MAX_PULSE_BUFFER] = {0.0f}; // 220 ~ 22050/100
+
+    stm32f7_wm8994_init(AUDIO_FREQUENCY_22K, // 22050 Hz
+                        IO_METHOD_DMA,
+                        INPUT_DEVICE_INPUT_LINE_1,
+                        OUTPUT_DEVICE_HEADPHONE,
+                        WM8994_HP_OUT_ANALOG_GAIN_0DB,
+                        WM8994_LINE_IN_GAIN_0DB,
+                        WM8994_DMIC_GAIN_9DB,
+                        SOURCE_FILE_NAME,
+                        NOGRAPH);
+
+    // generate single prototype pulse 10% shorter than that of the fundamental period
+    gPulseLen = genPulse(FS, F0 * 1.1, gPulseBuf, PULSE_GAIN);
+
+    for(;;){
+        while (!(RX_buffer_full && TX_buffer_empty)){}
+
+        // 1. Copy first half to the output during the DMA processing
+        process_buffer(mainBuf); 
+
+        // 2. Copy second half to first half
+        for (size_t i = 0; i < N; i++){
+            mainBuf[i] = mainBuf[i + N];
+            mainBuf[i + N] = 0.0f;
+        }
+
+        // Place pulses inside the buffer
+        while (idxMainBuf < N){
+            lastPulseLen = getPulseLen(FS, contour[contourIndex]);
+
+            // add vibrato
+            lastPulseLen += (uint16_t) floor((float32_t) 0.5f + (float32_t) 7.0f * sin((float32_t)2.0f * PI * vibrato / (float32_t)28.0f));
+
+            // 3. Filter and accumulate the pulse into the mainbuffer
+            filteredLength = lastPulseLen + 20; // dummy
+
+            // 4. Copy *filtered* pulse to main buffer
+            for (size_t i = 0; i < filteredLength; i++)
+                mainBuf[idxMainBuf++] += gPulseBuf[i];
+
+            idxMainBuf -= (filteredLength - lastPulseLen);
+            
+            vibrato = (vibrato+1) % 28;
+            contourIndex = (contourIndex < contourLen) ? contourIndex + 1 : contourIndex;
+        }
+
+        idxMainBuf -= N;
+    }
+}
+\end{lstlisting}
+    
+
+\section{Filtering}
+
+\begin{lstlisting}[language=C, caption={Vowel Synthesis in C}, label={lst:vowelSynth}]
+int main(void) {
+    // initialize the board and the audio codec
+    stm32f7_wm8994_init(AUDIO_FREQUENCY_22K, // 22050 Hz
+                    IO_METHOD_DMA,
+                    INPUT_DEVICE_INPUT_LINE_1,
+                    OUTPUT_DEVICE_HEADPHONE,
+                    WM8994_HP_OUT_ANALOG_GAIN_0DB,
+                    WM8994_LINE_IN_GAIN_0DB,
+                    WM8994_DMIC_GAIN_9DB,
+                    SOURCE_FILE_NAME,
+                    NOGRAPH);
+
+    uint16_t idxMainBuf = 0, vibrato = 0, contourIndex = 0; // reset main buffer index
+    uint16_t gPulseLen, lastPulseLen, filteredLength;
+
+    float32_t mainBuf[2 * PING_PONG_BUFFER_SIZE] = {0.0f};
+    float32_t gPulseBuf[MAX_PULSE_BUFFER] = {0.0f}; // 220 ~ 22050/100
+    float32_t colorPulse[MAX_PULSE_BUFFER] = {0.0f};
+        
+    float32_t tilt[N] = {0.0f};
+
+    // * generate single prototype pulse 10% shorter than that of the fundamental period
+    //gPulseLen = genPulse(FS, F0 * 1.1f, gPulseBuf, PULSE_GAIN);
+    gPulseLen = genPulse(FS, F0, gPulseBuf, PULSE_GAIN);
+        
+    // pre compute the pulse spectral tilt of the filter (1/lfgain)
+    tiltGain(tilt, N, FS, F0);
+    
+        // * precompute sin window and odft exponentials
+    for (uint32_t i = 0; i < N; i++) {
+        sinW[i] = (float32_t) sin(PI / N * (i + 0.5f));
+            
+        dirExp[i].real = (float32_t) cos(-PI * i / N);
+        dirExp[i].imag = (float32_t) sin(-PI * i / N);
+
+        invExp[i].real = (float32_t) cos(PI * i / N);
+        invExp[i].imag = (float32_t) sin(PI * i / N);
+    }
+
+    float32_t autocorrelation[LPCorder + 1] = {0.0f};
+    float32_t aCoeff[LPCorder + 1] = {0.0f};
+    float32_t error = 0.0f, b0 = 0.0f;
+
+    float32_t psd[N] = {0.0f};
+    
+    for(;;){
+        while (!(RX_buffer_full && TX_buffer_empty)){}
+
+        // 1. Copy first half to the output during the DMA processing
+        process_buffer(mainBuf);
+
+        arm_mult_f32(psd, tilt, psd, N); // Multiply the PSD by the tilt gain factor	
+                
+        for (uint32_t i = 0; i < N; i++){ // create complex array from PSD
+            tempBuff[i].real = psd[i];
+            tempBuff[i].imag = 0.0f;
+        }
+                
+        // Use weiner khinchine (apply IODFT) to compute the autocorrelation sequence from the PSD
+        arm_cfft_f32(&arm_cfft_sR_f32_len1024, (float32_t *)(tempBuff), 1, 1); // ifft flag = 1, doBitReverse = 1
+        arm_cmplx_mult_cmplx_f32((float32_t *)(tempBuff), (float32_t *)(invExp), (float32_t *)(currBuff), N); // iodft
+
+        // only first (LPCorder + 1) values are needed for levinson recursion
+        for (uint32_t i = 0; i <= LPCorder; i++)
+            autocorrelation[i] = tempBuff[i].real;    // assuming here the complex part will be zero
+
+        levinson(autocorrelation, LPCorder, aCoeff, &error); // LPC analysis
+
+        arm_sqrt_f32(error, &b0); // compute b0 gain factor
+
+        // 2. Copy second half to first half
+        for (int32_t i = 0; i < N2; i++){
+            mainBuf[i] = mainBuf[i + N2];
+            mainBuf[i + N2] = 0.0f;
+        }
+
+        // Place pulses inside the buffer
+        while (idxMainBuf < N2){
+            // follow f0 contourIndex
+            lastPulseLen = getPulseLen(FS, F0); // dummy pulse length just for placement
+
+            // 3. Filter and accumulate the pulse into the mainbuffer
+            filteredLength = MAX_PULSE_BUFFER;
+            iirDirectTypeII(gPulseBuf, colorPulse, MAX_PULSE_BUFFER, b0, aCoeff, LPCorder + 1);
+
+            // 4. Copy *filtered* pulse to main buffer
+            for (int32_t i = 0; i < filteredLength; i++)
+                mainBuf[idxMainBuf++] += 0.00002f * colorPulse[i];
+
+            idxMainBuf -= (filteredLength - lastPulseLen);
+        }
+
+        idxMainBuf -= N2;
+    }
+}
+\end{lstlisting}
+
+\section{Overlap Add conversion}
+
+\begin{lstlisting}[language=Python, caption={Complete System evaluation in python}, label={lst:pythonConversion}, style=mystyle]
+    N = 1024; N2 = N // 2; INT16_MAX = 32767
+    
+    # hanning sine window for each frame
+    sinW = np.sin(np.pi * (np.arange(0, N) + 0.5) / N)
+    
+    # input and output buffers
+    old_inBuff  = np.zeros(N2)
+    old_outBuff = np.zeros(N2)
+    
+    # pulse buffers
+    pulseBuffer = np.zeros(N) # 1024 samples long
+    # initialization for the first the pulse, such that the alpha coefficient for the PSD calculation is never 0
+    lastPulsePos = 1 
+    
+    # power spectral density
+    old_psd = np.zeros(N)
+    pulse_psd = np.zeros(N)
+    
+    # output file
+    outputFile = np.array([])
+    # tilt compensation factor
+    tilt = tiltGain(F0, FS, N)
+    tilt = np.concatenate((tilt, tilt[::-1]))
+    
+    aaa = np.array([])
+    
+    currF0 = 0
+    f0contour = np.concatenate((contour, np.full(10*FS, contour[-1])))
+    
+    # load new frames 512 samples at a time
+    for start in range(0, len(datain) - N2, N2):
+        in_frame = datain[start : start + N2]
+    
+        if(len(in_frame) != N2):
+            in_frame = np.pad(in_frame, (0, N2 - len(in_frame)), 'constant')
+    
+        # Concatenate input sequence and apply window
+        winFrame = np.concatenate((old_inBuff, in_frame)) * sinW
+        old_inBuff = in_frame
+    
+        # DFT and compute PSD for current frame
+        curr_spectrum = odft(winFrame, N)
+        curr_psd = np.abs(curr_spectrum) ** 2
+    
+        # pulse generation
+        pulseBuffer[:N2] = pulseBuffer[N2:] # shift the buffer
+        pulseBuffer[N2:] = 0 # clear the second half of the buffer
+    
+        # compute centre of gravity and energy from PSD
+        cog = np.sum(curr_psd[:N2] * (np.arange(0, N2)*FS)/N) / np.sum(curr_psd[:N2])
+        energy = np.sum(curr_psd[:N2])
+        
+        unvoiced = m(cog, Fvuv, Fuv)
+        activity = WAD(in_frame) # here we need the in_frame such that we can compute the zero crossing rate
+        
+        aaa = np.concatenate((aaa, np.array([unvoiced])))
+    
+        while lastPulsePos < N2:
+            # generate both a pulse and noise
+            f0 = f0contour[currF0]
+            pLen = int(FS/f0)
+            t = np.arange(0, 1/f0, 1/FS)
+            idx = np.arange(currF0, currF0 + len(t))
+            pulse = v_glotlf(1, t*f0contour[idx])
+            noise = np.random.normal(0, 0.1, len(pulse)) * 0.2
+    
+            alpha = lastPulsePos / N2# psd mixing coefficient
+            pulse_psd = (alpha)*curr_psd + (1-alpha)*old_psd # average the psds
+            pulse_psd = pulse_psd / tilt # tilt compensation
+            
+            uvmix = unvoiced * 0.5 + 0.5
+            pulse = (pulse * (1-uvmix) + noise*uvmix) * activity # add noise if unvoiced
+            
+            r = iodft(pulse_psd, N).real # weiner-khinchin
+            [a, e, k] = levinson(r, 22)
+            b0 = np.sqrt(e)
+    
+            lastPulseLen = len(pulse)
+            pulse = np.concatenate((pulse, np.zeros(300)))
+    
+            # filter the pulse
+            filteredPulse = signal.lfilter(b0, a, pulse)
+            pulseBuffer[lastPulsePos : lastPulsePos + len(filteredPulse)] += filteredPulse
+    
+            # update pulse position
+            lastPulsePos += lastPulseLen
+            currF0 += pLen # update curr frequency
+    
+        if(unvoiced > 0.5 or activity < 0.5): # Reset frequency contour if unvoiced
+            currF0 = 0
+    
+        lastPulsePos -= N2
+        output = pulseBuffer[:N2] # first half of the buffer
+        old_psd = curr_psd
+    
+        # Add the output through overlap add and save the previous output
+        outputFile = np.concatenate((outputFile, output))
+        old_outBuff = output
+    
+    outputFile = outputFile / max(abs(outputFile)) * INT16_MAX
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption={Speech conversion with segmentation in C}, label={lst:segmentationC}]
+    int main(void) {
+        // initialize the board and the audio codec
+        stm32f7_wm8994_init(AUDIO_FREQUENCY_22K, // 22050 Hz
+                        IO_METHOD_DMA,
+                        INPUT_DEVICE_INPUT_LINE_1,
+                        OUTPUT_DEVICE_HEADPHONE,
+                        WM8994_HP_OUT_ANALOG_GAIN_0DB,
+                        WM8994_LINE_IN_GAIN_0DB,
+                        WM8994_DMIC_GAIN_9DB,
+                        SOURCE_FILE_NAME,
+                        NOGRAPH);
+    
+        uint16_t idxMainBuf = 0, vibrato = 0, contourIndex = 0; // reset main buffer index
+        uint16_t gPulseLen, lastPulseLen, filteredLength;
+    
+        float32_t mainBuf[2 * PING_PONG_BUFFER_SIZE] = {0.0f};
+        float32_t gPulseBuf[MAX_PULSE_BUFFER] = {0.0f}; // 220 ~ 22050/100
+        float32_t gNoiseBuf[MAX_PULSE_BUFFER] = {0.0f};
+        float32_t colorPulse[MAX_PULSE_BUFFER] = {0.0f};
+            
+        float32_t tilt[N] = {0.0f};
+    
+        // * generate single prototype pulse 10% shorter than that of the fundamental period
+        gPulseLen = genPulse(FS, F0, gPulseBuf, PULSE_GAIN);
+            
+        // pre compute the pulse spectral tilt of the filter (1/lfgain)
+        tiltGain(tilt, N, FS, F0);
+        
+        // * precompute sin window and odft exponentials
+        for (uint32_t i = 0; i < N; i++) {
+            sinW[i] = (float32_t) sin(PI / N * (i + 0.5f));
+                
+            dirExp[i].real = (float32_t) cos(-PI * i / N);
+            dirExp[i].imag = (float32_t) sin(-PI * i / N);
+    
+            invExp[i].real = (float32_t) cos(PI * i / N);
+            invExp[i].imag = (float32_t) sin(PI * i / N);
+        }
+    
+        float32_t autocorrelation[LPCorder + 1] = {0.0f};
+        float32_t aCoeff[LPCorder + 1] = {0.0f};
+        float32_t error = 0.0f, b0 = 0.0f;
+    
+        float32_t currPSD[N] = {0.0f};
+        float32_t lastPSD[N] = {0.0f};
+        float32_t pAlpha = 0.0f;
+        
+        for(;;){
+            while (!(RX_buffer_full && TX_buffer_empty)){}
+    
+            //* 1. Copy first half to the output during the DMA processing
+            process_buffer(mainBuf);
+    
+            //* 1.5. Compute filter from currBuff
+            arm_cmplx_mult_cmplx_f32((float32_t *)(currBuff), (float32_t *)(dirExp), (float32_t *)(tempBuff), N); //odft exponential //working fine
+            arm_cfft_f32(&arm_cfft_sR_f32_len1024, (float32_t *)(tempBuff), 0, 1); // ifft flag = 0, doBitReverse = 1
+            
+            arm_cmplx_mag_squared_f32((float32_t *)(tempBuff), (float32_t *)(currPSD), N); // Compute PSD 
+    
+            //* 2. Copy second half to first half
+            for (int32_t i = 0; i < N2; i++){
+                mainBuf[i] = mainBuf[i + N2];
+                mainBuf[i + N2] = 0.0f;
+            }
+    
+            // compute the PSD's centre of gravity
+            float32_t cog = 0.0f, voiced = 0.0f;
+            cog = centreOfGravity(currPSD, N, FS);
+            voiced = mapping(cog, 2500, 4200, 0.99);
+    
+            // Place pulses inside the buffer
+            while (idxMainBuf < N2){
+                lastPulseLen = getPulseLen(FS, F0); // dummy pulse length just for placement
+                pAlpha = (idxMainBuf != 0) ? idxMainBuf/N2 : 1/N2 ; // pulse filtering coefficient (check for zero)
+    
+                //* 2.5. Generate a new filter based on the current pulse position
+                for (uint32_t i = 0; i < N; i++){
+                    tempBuff[i].real = (pAlpha * currPSD[i] + (1 - pAlpha) * lastPSD[i]) * tilt[i]; // apply tilt gain
+                    tempBuff[i].imag = 0.0f;
+    
+                    lastPSD[i] = currPSD[i]; // save last psd
+                }
+    
+                // Use weiner khinchine (apply IODFT) to compute the autocorrelation sequence from the PSD
+                arm_cfft_f32(&arm_cfft_sR_f32_len1024, (float32_t *)(tempBuff), 1, 1); // ifft flag = 1, doBitReverse = 1
+                arm_cmplx_mult_cmplx_f32((float32_t *)(tempBuff), (float32_t *)(invExp), (float32_t *)(currBuff), N); // iodft
+    
+                // only first (LPCorder + 1) values are needed for levinson recursion
+                for (uint32_t i = 0; i <= LPCorder; i++)
+                    autocorrelation[i] = tempBuff[i].real;    // assuming here the complex part will be zero
+    
+                levinson(autocorrelation, LPCorder, aCoeff, &error); // LPC analysis
+                b0 = sqrtf(error); // gain factor
+    
+                //* Add noise to the pulse before filtering
+                float32_t uvMix = 0.5f + voiced * 0.5f;
+    
+                for (uint32_t i = 0; i < MAX_PULSE_BUFFER; i++)
+                    gNoiseBuf[i] = uvMix * gPulseBuf[i] + (1.0f - uvMix) * randFloat(); // add noise to the pulse
+     
+                //* 3. Filter and accumulate the pulse into the mainbuffer
+                filteredLength = MAX_PULSE_BUFFER;
+                iirDirectTypeII(gPulseBuf, colorPulse, MAX_PULSE_BUFFER, b0, aCoeff, LPCorder + 1);
+    
+                //* 4. Copy filtered pulse to main buffer
+                for (int32_t i = 0; i < filteredLength; i++)
+                    mainBuf[idxMainBuf++] += 0.00002f * colorPulse[i];
+    
+                // update main buffer index
+                idxMainBuf -= (filteredLength - lastPulseLen);
+            }
+    
+            for (uint32_t i = 0; i < N; i++)
+                lastPSD[i] = currPSD[i];
+            
+            idxMainBuf -= N2;
+        }
+    }
+\end{lstlisting}
+
+\begin{lstlisting}[language=C, caption={Whispered activity detection algorithm in C}, label={lst:wadC}]
+/// @brief Computes the Weighted Average Decision (WAD) based on energy and zero-crossing rate.
+/// @param frame Pointer to an array of 512 float32_t elements representing the signal frame.
+/// @param z1 Energy threshold below which the function returns 0.0f.
+/// @param z2 Energy threshold above which the function returns 1.0f.
+/// @param zCross Zero-crossing rate threshold to decide the WAD when energy is between z1 and z2.
+/// @return Returns 1.0f if the energy is above z2 or if the zero-crossing rate is above zCross when energy is between z1 and z2. Returns 0.0f otherwise.
+float32_t WAD(float32_t* frame, float32_t z1, float32_t z2, float32_t zCross) {
+    float energy = 0.0f;
+    int zeroCrossings = 0;
+    
+    for (int i = 0; i < 512; i++)
+        energy += frame[i] * frame[i];
+    
+    // Check energy against thresholds
+    if (energy >= z2)
+        return 1.0f;
+    else if (energy < z1)
+        return 0.0f;
+
+    // Calculate the zero-crossing rate
+    for (int i = 0; i < 511; i++)
+        if (frame[i] * frame[i + 1] < 0)
+            zeroCrossings++;
+    
+    float zeroCrossingRate = (float)zeroCrossings / 512.0f;
+    
+    // Return WAD based on zero-crossing rate
+    return (zeroCrossingRate > zCross) ? 1.0f : 0.0f;
+}
+\end{lstlisting}

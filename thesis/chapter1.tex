@@ -1,0 +1,42 @@
+\chapter{Introduction} \label{chap:intro}
+
+This introductory chapter outlines the context, motivation and objectives of this master's thesis, as well as the document's structure and organization.
+
+\section{Context}
+
+Human communication is predominantly vocal, with voiced speech being the most effective means of conveying information due to its clarity, projection, and intelligibility. However, certain situations necessitate the use of whispered speech, either to maintain quietness or to convey privacy and secrecy. Whispered speech, characterized by the absence of vocal fold vibration, results in a signal that lacks the periodic components, may be intelligible but lacks both the projection and prosody of voiced speech, making it difficult to understand in noisy environments.
+
+The reliance on whispered speech is not merely a matter of choice but a necessity for individuals suffering from conditions such as aphonia, bilateral vocal fold paralysis \cite{senatorovAphoniaInducedSimultaneous2013}, spasmodic dysphonia \cite{fabronMedicalTreatmentSpeech2013}, or those who have undergone laryngectomy as a result of injury or non-communicable diseases such as throat cancer \cite{jacobs1990carcinomas}. These conditions severely limit an individual's ability to produce voiced sounds, leading to significant communication challenges and social isolation. Traditional solutions, including the use of the electrolarynx (EL), oesophageal voice, and tracheo-oesophageal puncture with prosthesis, and although functional all of these often result in speech that is unnatural and difficult to understand, thereby severely impacting the quality of life of affected individuals.
+
+Technological advancements in signal processing offer new avenues for addressing these challenges. Silent speech interfaces and text-to-speech \cite{oord2017parallelwavenetfasthighfidelity, ren2022fastspeech2fasthighquality} applications have emerged as potential solutions but are often impractical for real-time communication. This thesis explores a novel approach to on-the-fly whispered-to-speech conversion, aiming to leverage synthetic voicing techniques to reconstruct natural-sounding speech from whispers.
+
+\section{Motivation}
+
+The ability to communicate effectively is a fundamental human need. For individuals restricted to whispered speech, the social and professional repercussions can be profound. Whispered speech, while useful in certain contexts, is inherently limited in its acoustic projection and intelligibility, lacking the speaker's unique vocal signature and making it susceptible to noise interference.
+
+Addressing these limitations through a non-invasive, real-time solution that preserves the speaker's vocal identity and enhances speech intelligibility could significantly improve the quality of life for those affected by voice disorders. The motivation behind this research is to develop a system that can convert whispered speech into natural-sounding voiced speech, thereby facilitating more effective and comfortable communication.
+
+This work is part of a broader effort to create advanced assistive technologies for individuals with voice disorders. By integrating existing signal processing techniques and without resorting to power/compute hungry solutions, this thesis aims to contribute to the development of practical solutions that can be used in everyday communication, ultimately helping to mitigate the social and professional impacts of voice disorders.
+
+\section{Objectives}
+
+The primary objective of this dissertation is to develop and implement additional functionalities of a whispered-to-speech conversion assistant on a real-time signal processing platform, as a part of the Dysphonic to Natural Voice Reconstruction (DyNaVoiceR) project, aiming to create a proof of concept for an assistive device capable of converting aphonic speech into natural sounding speech.
+
+The specific objectives of this research are as follows. Firstly, refining the whispered-to-speech conversion algorithm to improve the quality and intelligibility of the synthesized speech. Secondly, developing a real-time implementation of the conversion algorithm on a STM32 discovery board, enabling on-the-fly whispered-to-speech conversion. Finally, evaluating the performance of the system through objective and subjective tests to assess the quality and intelligibility of the synthesized speech.
+
+\section{Document Structure}
+
+This document is organized into the following chapters:
+
+\begin{itemize}
+    \item \textbf{Chapter 1} - Current chapter, providing and introduction to the thesis, outlining the context, motivation, and objectives of the research along with the document structure.
+    \item \textbf{Chapter 2} - Is a theoretical overview of the concepts and theory behind speech production, the characteristics of both voiced and whispered speech and existing models of speech production.
+    \item \textbf{Chapter 3} - Contains the literature review, discussing the state-of-the-art in whispered-to-voiced speech conversion, including the methodologies, techniques, results and challenges faced by existing systems.
+    \item \textbf{Chapter 4} - Documents the proposed methodology for generating glottal pulses in the time domain, including the signal processing techniques, algorithms, and implementation details regarding the chosen development platform.
+    \item \textbf{Chapter 5} - Documents the modelling of the vocal tract filter from speech signals, demonstrating the techniques used to estimate it from whispered speech in the frequency domain. It also includes the implementation details behind synthetic vowel generation from spectral templates.
+    \item \textbf{Chapter 6} - Documents the complete system architecture, including the integration of the glottal pulse generation and vocal tract filter modelling modules, along with the description of whispered speech detection and segmentation algorithms.
+    \item \textbf{Chapter 7} - Contains the experimental setup, data collection, and evaluation metrics used to assess the performance of the proposed system, along with the results and analysis of the experiments conducted.
+    \item \textbf{Chapter 8} - Concludes the thesis, summarizing the contributions, limitations, and future work, along with the final remarks and acknowledgements.
+\end{itemize}
+
+
