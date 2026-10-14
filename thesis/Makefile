@@ -16,9 +16,9 @@ PS2PDF=ps2pdf -dEmbedAllFonts#true
 MKIDX=makeindex
 
 ## Basename for result in PT
-TARGET:=mieec
+#TARGET:=meec
 ## Basename for result in EN
-#TARGET:=mieec-en
+TARGET:=meec-en
 
 # Basename for result in PT: PDI
 #TARGET:=pdi

@@ -1,0 +1,39 @@
+\documentclass[tikz,border=6pt]{standalone}
+\usepackage{amsmath}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+
+\tikzset{
+    blk/.style = {draw, rectangle, align=center, minimum width=15mm, minimum height=10mm, fill=white},
+    arr/.style = {-{Stealth[length=2.2mm]}, thick},
+}
+
+% LPC analysis chain (adapted from thesis Fig. 5.1)
+\begin{document}
+\begin{tikzpicture}[node distance=14mm]
+    \node (in) {$x[n]$};
+    \node[draw, circle, inner sep=1pt, right=of in] (mult) {$\times$};
+    \node[above=6mm of mult] (win) {$h[n]$};
+    \node[blk, right=of mult] (exp) {$e^{-j\pi n/N}$};
+    \node[blk, right=of exp] (dft) {FFT};
+    \node[blk, right=of dft] (psd) {$|X_O[k]|^2$};
+    \node[blk, right=of psd] (wk) {IODFT};
+    \node[blk, right=of wk] (lev) {Levinson--\\Durbin};
+    \node[right=of lev] (out) {$b_0,\ a_1 \dots a_p$};
+
+    \draw[arr] (in) -- (mult);
+    \draw[arr] (win) -- (mult);
+    \draw[arr] (mult) -- (exp);
+    \draw[arr] (exp) -- (dft);
+    \draw[arr] (dft) -- (psd);
+    \draw[arr] (psd) -- node[above] {$P[k]$} (wk);
+    \draw[arr] (wk) -- node[above] {$r[\tau]$} (lev);
+    \draw[arr] (lev) -- (out);
+
+    \begin{scope}[on background layer]
+        \node[draw, dashed, rounded corners, fill=blue!5, inner sep=6pt, fit=(mult)(win)(dft),
+              label={[font=\small\itshape]below:ODFT}] {};
+        \node[draw, dashed, rounded corners, fill=orange!8, inner sep=6pt, fit=(wk),
+              label={[font=\small\itshape]below:Wiener--Khinchin}] {};
+    \end{scope}
+\end{tikzpicture}
+\end{document}

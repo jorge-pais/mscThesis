@@ -1,0 +1,73 @@
+\documentclass[tikz,border=6pt]{standalone}
+\usepackage{amsmath}
+\usetikzlibrary{positioning,arrows.meta,calc}
+
+\tikzset{
+    blk/.style  = {draw, rounded corners=2pt, align=center, minimum height=11mm,
+                   minimum width=24mm, font=\small},
+    ana/.style  = {blk, fill=blue!7},
+    seg/.style  = {blk, fill=orange!12},
+    syn/.style  = {blk, fill=green!10},
+    op/.style   = {draw, circle, inner sep=1pt, minimum size=7mm, fill=white},
+    arr/.style  = {-{Stealth[length=2.2mm]}, thick},
+    ctrl/.style = {-{Stealth[length=2.2mm]}, thick, dashed},
+    lbl/.style  = {font=\footnotesize, fill=white, inner sep=1.5pt},
+}
+
+\begin{document}
+\begin{tikzpicture}
+
+    % ---------------- analysis (top row) ----------------
+    \node (in)                     at (-2.6, 0)  {$x[n]$};
+    \node[ana] (frame)             at (0, 0)     {Framing\\ \footnotesize 512 hop, sine window};
+    \node[ana] (odft)              at (3.6, 0)   {ODFT\\ $P_j[k] = |X_O[k]|^2$};
+    \node[ana, minimum width=30mm] (interp) at (7.6, 0)
+        {PSD interpolation\\ \footnotesize $(1-\alpha_k)P_{j-1} + \alpha_k P_j$};
+    \node[ana] (tilt)              at (11.4, 0)  {Spectral tilt\\ compensation};
+    \node[ana] (lpc)               at (15.0, 0)  {IODFT +\\ Levinson--Durbin};
+
+    % ---------------- segmentation (middle row) ----------------
+    \node[seg] (wad)               at (0, -2.2)   {WAD\\ \footnotesize energy + ZCR};
+    \node[seg] (cog)               at (7.6, -2.2) {Centre of gravity\\ + sigmoid $\sigma(\cdot)$};
+
+    % ---------------- synthesis (bottom row) ----------------
+    \node[syn] (contour)           at (0, -4.6)    {$F_0$ contour\\ $f_0(t)$};
+    \node[syn] (lf)                at (3.6, -4.6)  {LF pulse\\ \footnotesize one period};
+    \node[syn, minimum width=30mm] (mix) at (7.6, -4.6)
+        {Excitation mix\\ $(1-\beta)\,g + \beta\,\nu$};
+    \node[op]  (act)               at (11.4, -4.6) {$\times$};
+    \node[syn] (filt)              at (15.0, -4.6) {$H(z) = \dfrac{b_0}{A(z)}$\\ \footnotesize per pulse};
+    \node[syn] (buff)              at (18.6, -4.6) {Pulse buffer\\ \footnotesize overlap-add};
+    \node (out)                    at (21.2, -4.6) {$y[n]$};
+    \node[syn] (noise)             at (7.6, -6.8)  {Noise $\nu[n]$};
+
+    % ---------------- analysis flow ----------------
+    \draw[arr] (in) -- (frame);
+    \draw[arr] (frame) -- (odft);
+    \draw[arr] (odft) -- node[lbl, above=1pt] {$P_j$} (interp);
+    \draw[arr] (interp) -- (tilt);
+    \draw[arr] (tilt) -- (lpc);
+    \draw[arr] (lpc) -- node[lbl, right=2pt] {$b_0,\ a_1 \dots a_{22}$} (filt);
+
+    % ---------------- segmentation flow ----------------
+    \draw[arr] (frame) -- node[lbl, right=2pt] {512 new samples} (wad);
+    \draw[arr] (odft.south) |- (cog.west);
+    \draw[arr] (cog) -- node[lbl, right=2pt] {voicing $\beta$} (mix);
+    \draw[arr] (wad.west) -- ++(-0.9, 0) |- ($(noise.south) + (0, -0.6)$) -| node[lbl, pos=0.75, right=2pt] {activity} (act.south);
+    \draw[ctrl] (wad) -- node[lbl, right=2pt] {reset on UV / silence} (contour);
+
+    % ---------------- synthesis flow ----------------
+    \draw[arr] (contour) -- (lf);
+    \draw[arr] (lf) -- node[lbl, above=1pt] {$g[n]$} (mix);
+    \draw[arr] (noise) -- (mix);
+    \draw[arr] (mix) -- (act);
+    \draw[arr] (act) -- (filt);
+    \draw[arr] (filt) -- (buff);
+    \draw[arr] (buff) -- (out);
+
+    % pulse position drives the interpolation weight
+    \draw[ctrl] (buff.north) |- node[lbl, pos=0.25, right=2pt] {pulse position $\to \alpha_k$}
+        ($(interp.south) + (1.0, -0.9)$) -- ($(interp.south) + (1.0, 0)$);
+
+\end{tikzpicture}
+\end{document}
