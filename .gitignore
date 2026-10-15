@@ -1,7 +1,7 @@
 ## repo specific
 .DS_Store
 .vscode/
-data/
+/data/
 
 ## Core latex/pdflatex auxiliary files:
 *.aux
